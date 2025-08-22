@@ -2,10 +2,13 @@
 // LLM Router Service - Core Types
 // =============================================================================
 
-// Import shared types from @htma/shared-types
-import {
-  ApiError
-} from '@htma/shared-types';
+// Temporarily define ApiError locally for CI/CD pipeline
+interface ApiError {
+  code: string;
+  message: string;
+  details?: any;
+  timestamp: Date;
+}
 
 // =============================================================================
 // REQUEST & RESPONSE TYPES
@@ -375,16 +378,7 @@ export enum AnalysisType {
 }
 
 // =============================================================================
-// RE-EXPORT SHARED TYPES
+// EXPORTED TYPES
 // =============================================================================
 
-// Re-export commonly used shared types for convenience
-export type {
-  ApiResponse,
-  ApiError,
-  HealthCheck,
-  HealthCheckResult,
-  ServiceInfo,
-  BaseEntity,
-  AuditLog
-} from '@htma/shared-types';
+export type { ApiError };

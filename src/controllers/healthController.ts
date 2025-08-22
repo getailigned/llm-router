@@ -4,7 +4,35 @@
 
 import { Router, Request, Response } from 'express';
 import { logger } from '../services/loggerService';
-import { HealthCheck, HealthCheckResult, ServiceInfo } from '@htma/shared-types';
+// Temporarily define types locally for CI/CD pipeline
+interface HealthCheckResult {
+  status: 'healthy' | 'unhealthy';
+  message?: string;
+  timestamp: Date;
+  details?: any;
+}
+
+interface HealthCheck {
+  status: 'healthy' | 'unhealthy' | 'degraded';
+  timestamp: Date;
+  checks: Record<string, HealthCheckResult>;
+}
+
+interface ServiceInfo {
+  name: string;
+  version: string;
+  environment: string;
+  uptime: number;
+  memory: {
+    used: number;
+    total: number;
+    external: number;
+  };
+  cpu: {
+    usage: number;
+    load: number[];
+  };
+}
 
 const router = Router();
 

@@ -58,11 +58,11 @@ jobs:
           
       - name: Run linting
         run: |
-          npm run lint || echo "Linting failed but continuing..."
+          npm run lint || echo "Linting completed with warnings/errors but continuing..."
           
       - name: Run tests
         run: |
-          npm test -- --coverage --watchAll=false
+          npm run test:ci
           
       - name: Build application
         run: |

@@ -18,8 +18,11 @@ The following secrets have been added to the Azure Key Vault `htma-dev-secure-kv
 - **`llm-router-azure-client-secret`**: Service principal secret (placeholder)
 
 ### **Google Cloud Configuration**
-- **`llm-router-google-cloud-project-id`**: GCP project ID (placeholder)
-- **`llm-router-google-application-credentials`**: Service account key JSON (placeholder)
+- **`llm-router-google-cloud-project-id`**: GCP project ID (configured: gen-lang-client-0143595591)
+- **`llm-router-google-application-credentials`**: Service account email (configured)
+- **`llm-router-vertex-ai-location`**: Vertex AI region (configured: us-east1)
+- **`llm-router-workload-identity-pool`**: Workload Identity Pool (configured)
+- **`llm-router-workload-identity-provider`**: Workload Identity Provider (configured)
 
 ### **Security & Integration**
 - **`llm-router-jwt-secret`**: JWT signing secret (auto-generated)
@@ -49,32 +52,6 @@ az keyvault secret set \
   --vault-name htma-dev-secure-kv \
   --name "llm-router-azure-client-secret" \
   --value "ACTUAL_CLIENT_SECRET_FROM_SERVICE_PRINCIPAL"
-```
-
-#### **Google Cloud Project**
-```bash
-# Set your GCP project ID
-az keyvault secret set \
-  --vault-name htma-dev-secure-kv \
-  --name "llm-router-google-cloud-project-id" \
-  --value "your-actual-gcp-project-id"
-
-# Create service account and download key
-gcloud iam service-accounts create htma-llm-router \
-  --display-name="HTMA LLM Router Service Account"
-
-gcloud projects add-iam-policy-binding your-project-id \
-  --member="serviceAccount:htma-llm-router@your-project-id.iam.gserviceaccount.com" \
-  --role="roles/aiplatform.user"
-
-gcloud iam service-accounts keys create key.json \
-  --iam-account=htma-llm-router@your-project-id.iam.gserviceaccount.com
-
-# Upload service account key to Key Vault
-az keyvault secret set \
-  --vault-name htma-dev-secure-kv \
-  --name "llm-router-google-application-credentials" \
-  --file key.json
 ```
 
 #### **Service Bus Connection String**
@@ -119,7 +96,11 @@ JWT_SECRET=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.
 # Google Cloud Configuration (from Key Vault)
 GOOGLE_CLOUD_PROJECT_ID=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/llm-router-google-cloud-project-id/)
 GOOGLE_APPLICATION_CREDENTIALS=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/llm-router-google-application-credentials/)
-VERTEX_AI_LOCATION=us-east1
+VERTEX_AI_LOCATION=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/llm-router-vertex-ai-location/)
+
+# Workload Identity Federation (from Key Vault)
+WORKLOAD_IDENTITY_POOL=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/llm-router-workload-identity-pool/)
+WORKLOAD_IDENTITY_PROVIDER=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/llm-router-workload-identity-provider/)
 
 # Service Bus Configuration (from Key Vault)
 SERVICE_BUS_CONNECTION_STRING=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/llm-router-service-bus-connection-string/)
@@ -238,6 +219,12 @@ env:
     secretRef: llm-router-google-cloud-project-id
   - name: GOOGLE_APPLICATION_CREDENTIALS
     secretRef: llm-router-google-application-credentials
+  - name: VERTEX_AI_LOCATION
+    secretRef: llm-router-vertex-ai-location
+  - name: WORKLOAD_IDENTITY_POOL
+    secretRef: llm-router-workload-identity-pool
+  - name: WORKLOAD_IDENTITY_PROVIDER
+    secretRef: llm-router-workload-identity-provider
   - name: SERVICE_BUS_CONNECTION_STRING
     secretRef: llm-router-service-bus-connection-string
 ```
@@ -260,6 +247,33 @@ az keyvault set-policy \
   --secret-permissions get list
 ```
 
+## 🔐 **Workload Identity Federation Setup**
+
+### **What We've Configured:**
+
+1. **Workload Identity Pool**: `azure-htma-pool`
+2. **Workload Identity Provider**: `azure-htma-provider`
+3. **Service Account**: `htma-llm-router@gen-lang-client-0143595591.iam.gserviceaccount.com`
+4. **Repository Restriction**: Only allows access from `getailigned/HT-Management`
+
+### **How It Works:**
+
+1. **Azure Container App** runs with a managed identity
+2. **GitHub Actions** can generate OIDC tokens for the repository
+3. **Google Cloud** validates the token and allows access to Vertex AI
+4. **No service account keys** are needed - more secure!
+
+### **Required GitHub Actions Setup:**
+
+```yaml
+# In your GitHub Actions workflow
+permissions:
+  id-token: write  # Required for OIDC token generation
+
+# The workflow will automatically get OIDC tokens
+# that can be used to authenticate with Google Cloud
+```
+
 ## 🔍 **Verification Commands**
 
 ### **Check Key Vault Secrets**
@@ -273,7 +287,7 @@ az keyvault secret list \
 # Verify specific secret
 az keyvault secret show \
   --vault-name htma-dev-secure-kv \
-  --name "llm-router-database-url"
+  --name "llm-router-google-cloud-project-id"
 ```
 
 ### **Test Database Connection**
@@ -291,22 +305,36 @@ redis-cli -h htma-dev-redis.redis.cache.windows.net \
   ping
 ```
 
+### **Verify Workload Identity Federation**
+```bash
+# Check Workload Identity Pool
+gcloud iam workload-identity-pools describe "azure-htma-pool" --location="global"
+
+# Check Workload Identity Provider
+gcloud iam workload-identity-pools providers describe "azure-htma-provider" \
+  --workload-identity-pool="azure-htma-pool" \
+  --location="global"
+
+# Check Service Account IAM bindings
+gcloud iam service-accounts get-iam-policy "htma-llm-router@gen-lang-client-0143595591.iam.gserviceaccount.com"
+```
+
 ## 📋 **Next Steps**
 
 1. **Update Placeholder Values**: Replace all placeholder secrets with actual values
 2. **Create Database**: Set up the PostgreSQL database with pgvector extension
-3. **Configure Google Cloud**: Set up Vertex AI project and service account
-4. **Deploy Service**: Use Terraform to deploy the LLM Router Container App
-5. **Test Integration**: Verify all services can access Key Vault secrets
+3. **Deploy Service**: Use Terraform to deploy the LLM Router Container App
+4. **Test Integration**: Verify all services can access Key Vault secrets and Google Cloud
 
 ## 🔐 **Security Notes**
 
 - All secrets are stored in Azure Key Vault with proper access controls
-- Secrets are automatically rotated and managed by Azure
+- **Workload Identity Federation** eliminates the need for service account keys
+- **Repository-restricted access** ensures only authorized code can access Google Cloud
 - Container Apps use managed identities for secure access
 - No secrets are stored in code or configuration files
 - All sensitive data is encrypted at rest and in transit
 
 ---
 
-**🎯 Status**: Key Vault secrets have been created and are ready for configuration. Update the placeholder values and proceed with service deployment.
+**🎯 Status**: Key Vault secrets have been created and are ready for configuration. Workload Identity Federation is set up for secure Google Cloud access. Update the placeholder values and proceed with service deployment.

@@ -4,12 +4,12 @@ on:
   push:
     branches: [ main, develop ]
     paths:
-      - 'llm-router/**'
+      - '**'
       - '.github/workflows/llm-router-pipeline.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'llm-router/**'
+      - '**'
   workflow_dispatch:
     inputs:
       environment:
@@ -49,26 +49,22 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
-          cache-dependency-path: llm-router/package-lock.json
+          cache-dependency-path: package-lock.json
           
       - name: Install dependencies
-        working-directory: ./llm-router
         run: |
           npm ci
           npm audit --audit-level=moderate || true
           
       - name: Run linting
-        working-directory: ./llm-router
         run: |
           npm run lint || echo "Linting failed but continuing..."
           
       - name: Run tests
-        working-directory: ./llm-router
         run: |
           npm test -- --coverage --watchAll=false
           
       - name: Build application
-        working-directory: ./llm-router
         run: |
           npm run build
           
@@ -76,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: llm-router-build
-          path: llm-router/dist/
+          path: dist/
           retention-days: 7
 
   # Security Scan Job
@@ -140,7 +136,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./llm-router
+          context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -149,7 +145,6 @@ jobs:
           platforms: linux/amd64
           
       - name: Generate deployment manifest
-        working-directory: ./llm-router
         run: |
           # Create deployment manifest with current image tag
           IMAGE_TAG="${{ steps.meta.outputs.version }}"

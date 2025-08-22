@@ -2,6 +2,11 @@
 // LLM Router Service - Core Types
 // =============================================================================
 
+// Import shared types from @htma/shared-types
+import {
+  ApiError
+} from '@htma/shared-types';
+
 // =============================================================================
 // REQUEST & RESPONSE TYPES
 // =============================================================================
@@ -298,13 +303,11 @@ export interface AuthToken {
 // ERROR & EXCEPTION TYPES
 // =============================================================================
 
-export interface LLMRouterError extends Error {
-  code: string;
-  statusCode: number;
+// Use shared ApiError type instead of custom LLMRouterError
+export interface LLMRouterError extends ApiError {
   requestId?: string;
   serviceId?: string;
-  timestamp: Date;
-  details?: Record<string, any>;
+  statusCode: number;
 }
 
 export interface ValidationError {
@@ -370,3 +373,18 @@ export enum AnalysisType {
   INTENT = 'intent',
   ENTITY = 'entity'
 }
+
+// =============================================================================
+// RE-EXPORT SHARED TYPES
+// =============================================================================
+
+// Re-export commonly used shared types for convenience
+export type {
+  ApiResponse,
+  ApiError,
+  HealthCheck,
+  HealthCheckResult,
+  ServiceInfo,
+  BaseEntity,
+  AuditLog
+} from '@htma/shared-types';

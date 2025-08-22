@@ -4,6 +4,7 @@
 
 import { Router, Request, Response } from 'express';
 import { logger } from '../services/loggerService';
+import { HealthCheck, HealthCheckResult, ServiceInfo } from '@htma/shared-types';
 
 const router = Router();
 
@@ -17,15 +18,16 @@ const router = Router();
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const healthStatus = {
+    const healthStatus: HealthCheck = {
       status: 'healthy',
-      timestamp: new Date().toISOString(),
-      service: 'HTMA LLM Router',
-      version: process.env['npm_package_version'] || '1.0.0',
-      environment: process.env['NODE_ENV'] || 'development',
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      pid: process.pid
+      timestamp: new Date(),
+      checks: {
+        service: {
+          status: 'healthy',
+          message: 'HTMA LLM Router is running',
+          timestamp: new Date()
+        }
+      }
     };
 
     logger.info('Health check requested', {
@@ -36,11 +38,19 @@ router.get('/', async (req: Request, res: Response) => {
     res.status(200).json(healthStatus);
   } catch (error) {
     logger.error('Health check failed', error);
-    res.status(500).json({
+    const errorResponse: HealthCheck = {
       status: 'unhealthy',
-      error: 'Health check failed',
-      timestamp: new Date().toISOString()
-    });
+      timestamp: new Date(),
+      checks: {
+        service: {
+          status: 'unhealthy',
+          message: 'Health check failed',
+          timestamp: new Date(),
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    };
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -51,35 +61,61 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/ready', async (_req: Request, res: Response) => {
   try {
     // Check if all required services are ready
-    const readinessChecks = {
-      database: true, // TODO: Implement actual database check
-      cache: true,    // TODO: Implement actual cache check
-      vertexAI: true, // TODO: Implement actual Vertex AI check
-      config: true    // TODO: Implement actual config check
+    const readinessChecks: Record<string, HealthCheckResult> = {
+      database: {
+        status: 'healthy', // TODO: Implement actual database check
+        message: 'Database connection ready',
+        timestamp: new Date()
+      },
+      cache: {
+        status: 'healthy', // TODO: Implement actual cache check
+        message: 'Cache service ready',
+        timestamp: new Date()
+      },
+      vertexAI: {
+        status: 'healthy', // TODO: Implement actual Vertex AI check
+        message: 'Vertex AI service ready',
+        timestamp: new Date()
+      },
+      config: {
+        status: 'healthy', // TODO: Implement actual config check
+        message: 'Configuration loaded',
+        timestamp: new Date()
+      }
     };
 
-    const allReady = Object.values(readinessChecks).every(check => check);
+    const allReady = Object.values(readinessChecks).every(check => check.status === 'healthy');
 
     if (allReady) {
-      res.status(200).json({
-        status: 'ready',
-        timestamp: new Date().toISOString(),
+      const readyResponse: HealthCheck = {
+        status: 'healthy',
+        timestamp: new Date(),
         checks: readinessChecks
-      });
+      };
+      res.status(200).json(readyResponse);
     } else {
-      res.status(503).json({
-        status: 'not ready',
-        timestamp: new Date().toISOString(),
+      const notReadyResponse: HealthCheck = {
+        status: 'degraded',
+        timestamp: new Date(),
         checks: readinessChecks
-      });
+      };
+      res.status(503).json(notReadyResponse);
     }
   } catch (error) {
     logger.error('Readiness check failed', error);
-    res.status(500).json({
-      status: 'error',
-      error: 'Readiness check failed',
-      timestamp: new Date().toISOString()
-    });
+    const errorResponse: HealthCheck = {
+      status: 'unhealthy',
+      timestamp: new Date(),
+      checks: {
+        readiness: {
+          status: 'unhealthy',
+          message: 'Readiness check failed',
+          timestamp: new Date(),
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    };
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -90,19 +126,37 @@ router.get('/ready', async (_req: Request, res: Response) => {
 router.get('/live', async (_req: Request, res: Response) => {
   try {
     // Simple liveness check - just check if the process is running
-    res.status(200).json({
-      status: 'alive',
-      timestamp: new Date().toISOString(),
-      pid: process.pid,
-      uptime: process.uptime()
-    });
+    const livenessResponse: HealthCheck = {
+      status: 'healthy',
+      timestamp: new Date(),
+      checks: {
+        process: {
+          status: 'healthy',
+          message: 'Process is alive',
+          timestamp: new Date(),
+          details: {
+            pid: process.pid,
+            uptime: process.uptime()
+          }
+        }
+      }
+    };
+    res.status(200).json(livenessResponse);
   } catch (error) {
     logger.error('Liveness check failed', error);
-    res.status(500).json({
-      status: 'error',
-      error: 'Liveness check failed',
-      timestamp: new Date().toISOString()
-    });
+    const errorResponse: HealthCheck = {
+      status: 'unhealthy',
+      timestamp: new Date(),
+      checks: {
+        process: {
+          status: 'unhealthy',
+          message: 'Liveness check failed',
+          timestamp: new Date(),
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    };
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -112,29 +166,53 @@ router.get('/live', async (_req: Request, res: Response) => {
  */
 router.get('/detailed', async (req: Request, res: Response) => {
   try {
-    const detailedHealth = {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      service: 'HTMA LLM Router',
+    const serviceInfo: ServiceInfo = {
+      name: 'HTMA LLM Router',
       version: process.env['npm_package_version'] || '1.0.0',
       environment: process.env['NODE_ENV'] || 'development',
       uptime: process.uptime(),
       memory: {
-        rss: process.memoryUsage().rss,
-        heapTotal: process.memoryUsage().heapTotal,
-        heapUsed: process.memoryUsage().heapUsed,
+        used: process.memoryUsage().heapUsed,
+        total: process.memoryUsage().heapTotal,
         external: process.memoryUsage().external
       },
-      system: {
-        platform: process.platform,
-        arch: process.arch,
-        nodeVersion: process.version,
-        pid: process.pid
-      },
-      env: {
-        NODE_ENV: process.env['NODE_ENV'],
-        PORT: process.env['PORT'],
-        LOG_LEVEL: process.env['LOG_LEVEL']
+      cpu: {
+        usage: 0, // TODO: Implement actual CPU usage monitoring
+        load: [0, 0, 0] // TODO: Implement actual load monitoring
+      }
+    };
+
+    const detailedHealth: HealthCheck = {
+      status: 'healthy',
+      timestamp: new Date(),
+      checks: {
+        service: {
+          status: 'healthy',
+          message: 'Service is healthy',
+          timestamp: new Date(),
+          details: serviceInfo
+        },
+        system: {
+          status: 'healthy',
+          message: 'System is healthy',
+          timestamp: new Date(),
+          details: {
+            platform: process.platform,
+            arch: process.arch,
+            nodeVersion: process.version,
+            pid: process.pid
+          }
+        },
+        environment: {
+          status: 'healthy',
+          message: 'Environment is configured',
+          timestamp: new Date(),
+          details: {
+            NODE_ENV: process.env['NODE_ENV'],
+            PORT: process.env['PORT'],
+            LOG_LEVEL: process.env['LOG_LEVEL']
+          }
+        }
       }
     };
 
@@ -146,11 +224,19 @@ router.get('/detailed', async (req: Request, res: Response) => {
     res.status(200).json(detailedHealth);
   } catch (error) {
     logger.error('Detailed health check failed', error);
-    res.status(500).json({
+    const errorResponse: HealthCheck = {
       status: 'unhealthy',
-      error: 'Detailed health check failed',
-      timestamp: new Date().toISOString()
-    });
+      timestamp: new Date(),
+      checks: {
+        service: {
+          status: 'unhealthy',
+          message: 'Detailed health check failed',
+          timestamp: new Date(),
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }
+    };
+    res.status(500).json(errorResponse);
   }
 });
 

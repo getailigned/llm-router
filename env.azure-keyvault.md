@@ -24,6 +24,10 @@ The following secrets have been added to the Azure Key Vault `htma-dev-secure-kv
 - **`llm-router-workload-identity-pool`**: Workload Identity Pool (configured)
 - **`llm-router-workload-identity-provider`**: Workload Identity Provider (configured)
 
+### **Vector Database Configuration**
+- **`WEAVIATE-URL`**: Weaviate vector database URL (configured)
+- **`WEAVIATE-API-KEY`**: Weaviate API key for authentication (configured)
+
 ### **Security & Integration**
 - **`llm-router-jwt-secret`**: JWT signing secret (auto-generated)
 - **`llm-router-service-bus-connection-string`**: Service Bus connection (placeholder)
@@ -104,6 +108,10 @@ WORKLOAD_IDENTITY_PROVIDER=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure
 
 # Service Bus Configuration (from Key Vault)
 SERVICE_BUS_CONNECTION_STRING=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/llm-router-service-bus-connection-string/)
+
+# Vector Database Configuration (from Key Vault)
+WEAVIATE_URL=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/WEAVIATE-URL/)
+WEAVIATE_API_KEY=@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/WEAVIATE-API-KEY/)
 
 # Service Configuration
 MAX_FILE_SIZE=50MB

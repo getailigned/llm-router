@@ -1,0 +1,203 @@
+# Production-Ready Weaviate Configuration for Azure Container Apps
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weaviate-production-config
+data:
+  # Weaviate Production Configuration
+  QUERY_DEFAULTS_LIMIT: "100"
+  AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+  AUTHENTICATION_APIKEY_ENABLED: "true"
+  AUTHENTICATION_APIKEY_ALLOWED_KEYS: "@Microsoft.KeyVault(SecretUri=https://htma-dev-secure-kv.vault.azure.net/secrets/WEAVIATE-API-KEY/)"
+  AUTHENTICATION_APIKEY_USERS: "htma-llm-router"
+  
+  # Persistence and Storage
+  PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+  BACKUP_FILESYSTEM_PATH: "/var/lib/weaviate/backups"
+  
+  # Vector Configuration
+  DEFAULT_VECTORIZER_MODULE: "none"
+  ENABLE_MODULES: "text2vec-openai,text2vec-cohere,text2vec-huggingface,qna-openai,backup-filesystem"
+  
+  # Cluster Configuration
+  CLUSTER_HOSTNAME: "weaviate-node"
+  CLUSTER_GOSSIP_BIND_PORT: "7100"
+  CLUSTER_DATA_BIND_PORT: "7101"
+  
+  # Performance Tuning
+  QUERY_MAXIMUM_RESULTS: "10000"
+  TRACK_VECTOR_DIMENSIONS: "true"
+  
+  # Monitoring and Logging
+  LOG_LEVEL: "info"
+  PROMETHEUS_MONITORING_ENABLED: "true"
+  PROMETHEUS_MONITORING_PORT: "2112"
+  
+  # Security Headers
+  CORS_ALLOW_ORIGIN: "*"
+  CORS_ALLOW_CREDENTIALS: "true"
+  
+  # Resource Limits
+  GOMAXPROCS: "2"
+  GOMEMLIMIT: "1.5GiB"
+
+---
+# Production Weaviate Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weaviate-production
+  labels:
+    app: weaviate-production
+    tier: database
+    component: vector-store
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: weaviate-production
+  template:
+    metadata:
+      labels:
+        app: weaviate-production
+        tier: database
+        component: vector-store
+    spec:
+      containers:
+      - name: weaviate
+        image: semitechnologies/weaviate:1.22.4
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 2112
+          name: metrics
+        envFrom:
+        - configMapRef:
+            name: weaviate-production-config
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /v1/.well-known/live
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /v1/.well-known/ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /v1/.well-known/live
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+        volumeMounts:
+        - name: weaviate-data
+          mountPath: /var/lib/weaviate
+        - name: weaviate-backups
+          mountPath: /var/lib/weaviate/backups
+      volumes:
+      - name: weaviate-data
+        persistentVolumeClaim:
+          claimName: weaviate-data-pvc
+      - name: weaviate-backups
+        persistentVolumeClaim:
+          claimName: weaviate-backup-pvc
+      restartPolicy: Always
+
+---
+# Persistent Volume Claims
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: weaviate-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: managed-csi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: weaviate-backup-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: managed-csi
+
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: weaviate-production-service
+  labels:
+    app: weaviate-production
+spec:
+  selector:
+    app: weaviate-production
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  - name: metrics
+    port: 2112
+    targetPort: 2112
+  type: ClusterIP
+
+---
+# Network Policy for Security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: weaviate-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: weaviate-production
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: htma-services
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS outbound
+    - protocol: TCP
+      port: 53   # DNS
+    - protocol: UDP
+      port: 53   # DNS

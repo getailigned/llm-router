@@ -1,0 +1,112 @@
+{
+    "class": "LLMDocument",
+    "description": "Documents for LLM Router RAG capabilities",
+    "vectorizer": "none",
+    "properties": [
+        {
+            "name": "content",
+            "dataType": [
+                "text"
+            ],
+            "description": "The main content of the document"
+        },
+        {
+            "name": "title",
+            "dataType": [
+                "text"
+            ],
+            "description": "Document title"
+        },
+        {
+            "name": "documentType",
+            "dataType": [
+                "text"
+            ],
+            "description": "Type of document (e.g., 'code', 'documentation', 'conversation')"
+        },
+        {
+            "name": "source",
+            "dataType": [
+                "text"
+            ],
+            "description": "Source of the document"
+        },
+        {
+            "name": "projectId",
+            "dataType": [
+                "text"
+            ],
+            "description": "Associated project ID"
+        },
+        {
+            "name": "userId",
+            "dataType": [
+                "text"
+            ],
+            "description": "User who created/owns the document"
+        },
+        {
+            "name": "tags",
+            "dataType": [
+                "text[]"
+            ],
+            "description": "Tags associated with the document"
+        },
+        {
+            "name": "language",
+            "dataType": [
+                "text"
+            ],
+            "description": "Programming language or natural language"
+        },
+        {
+            "name": "createdAt",
+            "dataType": [
+                "date"
+            ],
+            "description": "Creation timestamp"
+        },
+        {
+            "name": "updatedAt",
+            "dataType": [
+                "date"
+            ],
+            "description": "Last update timestamp"
+        },
+        {
+            "name": "embeddingModel",
+            "dataType": [
+                "text"
+            ],
+            "description": "Model used to generate embeddings"
+        },
+        {
+            "name": "chunkIndex",
+            "dataType": [
+                "int"
+            ],
+            "description": "Index of chunk if document is split"
+        },
+        {
+            "name": "parentDocumentId",
+            "dataType": [
+                "text"
+            ],
+            "description": "ID of parent document if this is a chunk"
+        },
+        {
+            "name": "confidence",
+            "dataType": [
+                "number"
+            ],
+            "description": "Confidence score for the document"
+        },
+        {
+            "name": "metadata",
+            "dataType": [
+                "text"
+            ],
+            "description": "Additional metadata as JSON string"
+        }
+    ]
+}

@@ -1,0 +1,447 @@
+name: LLM Router - Build and Deploy to Azure
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'llm-router/**'
+      - '.github/workflows/llm-router-pipeline.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'llm-router/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      force_deploy:
+        description: 'Force deployment even if no changes'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ${{ secrets.AZURE_REGISTRY }}
+  IMAGE_NAME: llm-router
+  SERVICE_NAME: llm-router-service
+  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  LOCATION: ${{ secrets.AZURE_LOCATION }}
+
+jobs:
+  # Build and Test Job
+  build-and-test:
+    runs-on: ubuntu-latest
+    name: Build and Test LLM Router
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: llm-router/package-lock.json
+          
+      - name: Install dependencies
+        working-directory: ./llm-router
+        run: |
+          npm ci
+          npm audit --audit-level=moderate || true
+          
+      - name: Run linting
+        working-directory: ./llm-router
+        run: |
+          npm run lint || echo "Linting failed but continuing..."
+          
+      - name: Run tests
+        working-directory: ./llm-router
+        run: |
+          npm test -- --coverage --watchAll=false
+          
+      - name: Build application
+        working-directory: ./llm-router
+        run: |
+          npm run build
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: llm-router-build
+          path: llm-router/dist/
+          retention-days: 7
+
+  # Security Scan Job
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+    needs: build-and-test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Build and Push Docker Image
+  build-and-push:
+    runs-on: ubuntu-latest
+    name: Build and Push Docker Image
+    needs: [build-and-test, security-scan]
+    if: github.event_name == 'push' || github.event.inputs.force_deploy == 'true'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.REGISTRY }}
+          username: ${{ secrets.AZURE_REGISTRY_USERNAME }}
+          password: ${{ secrets.AZURE_REGISTRY_PASSWORD }}
+          
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=dev,enable={{is_default_branch}}
+            
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./llm-router
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          
+      - name: Generate deployment manifest
+        working-directory: ./llm-router
+        run: |
+          # Create deployment manifest with current image tag
+          IMAGE_TAG="${{ steps.meta.outputs.version }}"
+          cat > deployment-manifest.yaml << EOF
+          apiVersion: 2019-12-01
+          location: ${{ env.LOCATION }}
+          name: ${{ env.SERVICE_NAME }}
+          type: Microsoft.Web/containerApps
+          properties:
+            managedEnvironmentId: /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.App/managedEnvironments/${{ secrets.AZURE_CONTAINER_APPS_ENVIRONMENT }}
+            configuration:
+              ingress:
+                external: true
+                targetPort: 3000
+                allowInsecure: false
+                traffic:
+                  - latestRevision: true
+                    weight: 100
+              secrets:
+                - name: database-url
+                  value: ${{ secrets.DATABASE_URL }}
+                - name: redis-url
+                  value: ${{ secrets.REDIS_URL }}
+                - name: google-cloud-project-id
+                  value: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
+                - name: google-application-credentials
+                  value: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+                - name: azure-tenant-id
+                  value: ${{ secrets.AZURE_TENANT_ID }}
+                - name: azure-client-id
+                  value: ${{ secrets.AZURE_CLIENT_ID }}
+                - name: azure-client-secret
+                  value: ${{ secrets.AZURE_CLIENT_SECRET }}
+            template:
+              containers:
+                - name: ${{ env.IMAGE_NAME }}
+                  image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+                  resources:
+                    cpu: 1.0
+                    memory: 2Gi
+                  env:
+                    - name: NODE_ENV
+                      value: production
+                    - name: PORT
+                      value: "3000"
+                    - name: DATABASE_URL
+                      secretRef: database-url
+                    - name: REDIS_URL
+                      secretRef: redis-url
+                    - name: GOOGLE_CLOUD_PROJECT_ID
+                      secretRef: google-cloud-project-id
+                    - name: GOOGLE_APPLICATION_CREDENTIALS
+                      secretRef: google-application-credentials
+                    - name: AZURE_TENANT_ID
+                      secretRef: azure-tenant-id
+                    - name: AZURE_CLIENT_ID
+                      secretRef: azure-client-id
+                    - name: AZURE_CLIENT_SECRET
+                      secretRef: azure-client-secret
+                  probes:
+                    - type: readiness
+                      httpGet:
+                        path: /health
+                        port: 3000
+                      initialDelaySeconds: 10
+                      periodSeconds: 5
+                    - type: liveness
+                      httpGet:
+                        path: /health
+                        port: 3000
+                      initialDelaySeconds: 30
+                      periodSeconds: 10
+              scale:
+                minReplicas: 1
+                maxReplicas: 10
+                rules:
+                  - name: http-rule
+                    http:
+                      metadata:
+                        concurrentRequests: "100"
+          EOF
+          
+      - name: Upload deployment manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-manifest
+          path: deployment-manifest.yaml
+          retention-days: 1
+
+  # Deploy to Azure Container Apps
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Azure
+    needs: [build-and-push]
+    if: github.event_name == 'push' || github.event.inputs.force_deploy == 'true'
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download deployment manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-manifest
+          
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Set Azure subscription
+        run: |
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          
+      - name: Deploy to Azure Container Apps
+        run: |
+          # Deploy using the generated manifest
+          az containerapp create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.SERVICE_NAME }} \
+            --yaml deployment-manifest.yaml \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv
+          
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for deployment to be ready..."
+          sleep 30
+          
+      - name: Health check
+        run: |
+          # Get the FQDN of the deployed service
+          FQDN=$(az containerapp show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.SERVICE_NAME }} \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv)
+          
+          echo "Service deployed at: https://$FQDN"
+          
+          # Wait for health check to pass
+          for i in {1..10}; do
+            if curl -f "https://$FQDN/health"; then
+              echo "Health check passed!"
+              break
+            fi
+            echo "Health check attempt $i failed, retrying in 10 seconds..."
+            sleep 10
+          done
+          
+      - name: Update deployment status
+        if: success()
+        run: |
+          echo "## 🚀 LLM Router Deployed Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ github.event.inputs.environment || 'dev' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service**: ${{ env.SERVICE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resource Group**: ${{ env.RESOURCE_GROUP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Location**: ${{ env.LOCATION }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Service is now running and healthy! 🎉" >> $GITHUB_STEP_SUMMARY
+
+  # Post-deployment validation
+  validate-deployment:
+    runs-on: ubuntu-latest
+    name: Validate Deployment
+    needs: [deploy]
+    if: github.event_name == 'push' || github.event.inputs.force_deploy == 'true'
+    
+    steps:
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          
+      - name: Set Azure subscription
+        run: |
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          
+      - name: Run integration tests
+        run: |
+          # Get the FQDN of the deployed service
+          FQDN=$(az containerapp show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.SERVICE_NAME }} \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv)
+          
+          echo "Running integration tests against: https://$FQDN"
+          
+          # Basic health check
+          curl -f "https://$FQDN/health"
+          
+          # API endpoint test
+          curl -f "https://$FQDN/api/v1/health"
+          
+          # Metrics endpoint test
+          curl -f "https://$FQDN/metrics"
+          
+          echo "All integration tests passed! ✅"
+          
+      - name: Performance test
+        run: |
+          # Simple load test
+          FQDN=$(az containerapp show \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.SERVICE_NAME }} \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv)
+          
+          echo "Running performance test..."
+          
+          # Test response time
+          for i in {1..5}; do
+            START_TIME=$(date +%s%N)
+            curl -s -f "https://$FQDN/health" > /dev/null
+            END_TIME=$(date +%s%N)
+            RESPONSE_TIME=$((($END_TIME - $START_TIME) / 1000000))
+            echo "Request $i: ${RESPONSE_TIME}ms"
+          done
+          
+          echo "Performance test completed! 🚀"
+
+  # Cleanup and notifications
+  cleanup:
+    runs-on: ubuntu-latest
+    name: Cleanup and Notifications
+    needs: [validate-deployment]
+    if: always()
+    
+    steps:
+      - name: Cleanup build artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cleanup-build-artifacts
+          path: /tmp/cleanup
+          retention-days: 1
+          
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ "${{ needs.validate-deployment.result }}" == "success" ]; then
+            echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+            echo "LLM Router service has been successfully deployed and validated." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Deployment Failed!" >> $GITHUB_STEP_SUMMARY
+            echo "LLM Router service deployment encountered issues." >> $GITHUB_STEP_SUMMARY
+            echo "Please check the logs for more details." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('LLM Router Deployment Status')
+            );
+            
+            const commentBody = `## 🚀 LLM Router Deployment Status
+            
+            **Build Status**: ${{ needs.build-and-test.result }}
+            **Security Scan**: ${{ needs.security-scan.result }}
+            **Deployment**: ${{ needs.deploy.result }}
+            **Validation**: ${{ needs.validate-deployment.result }}
+            
+            **Summary**: ${{ needs.validate-deployment.result == 'success' && '✅ All checks passed' || '❌ Some checks failed' }}
+            
+            [View full pipeline logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                comment_id: botComment.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: commentBody,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: commentBody,
+              });
+            }

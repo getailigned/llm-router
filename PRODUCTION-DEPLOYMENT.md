@@ -342,3 +342,5 @@ curl "https://htma-llm-router.victoriouswater-b21edd48.eastus.azurecontainerapps
 ---
 
 **🎉 Status**: Infrastructure is 95% complete. Weaviate is production-ready, all secrets are configured in Key Vault, and the deployment guide is ready. Only Azure AD service principal creation remains before full deployment.
+
+

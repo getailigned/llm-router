@@ -30,6 +30,19 @@ export interface LLMRequest {
   budget?: number;
   timestamp: Date;
   correlationId?: string;
+  userId?: string;
+  // Semantic analysis fields (auto-populated if not provided)
+  semanticAnalysis?: {
+    taskType: string;
+    complexity: 'simple' | 'moderate' | 'complex' | 'expert';
+    domain: string;
+    confidence: number;
+    estimatedTokens: number;
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    requiresMultimodal: boolean;
+    requiresRAG: boolean;
+    requiresCodeGeneration: boolean;
+  };
 }
 
 export interface LLMResponse {
@@ -81,7 +94,7 @@ export interface Model {
 }
 
 export interface ModelCapability {
-  type: 'text-generation' | 'code-generation' | 'multimodal' | 'rag' | 'semantic-analysis';
+  type: 'text-generation' | 'code-generation' | 'multimodal' | 'rag' | 'semantic-analysis' | 'complex-reasoning' | 'advanced-rag' | 'image-analysis' | 'code-analysis' | 'context-handling' | 'creative' | 'documentation';
   level: 'basic' | 'intermediate' | 'advanced' | 'expert';
   supportedFormats: string[];
   maxInputSize: number;
@@ -101,6 +114,11 @@ export interface ModelPricing {
   outputTokensPer1K: number;
   baseCost: number;
   currency: string;
+  lastUpdated?: Date;
+  source?: string;
+  confidence?: number;
+  nextUpdate?: Date;
+  provider?: string;
 }
 
 export interface ModelAvailability {
@@ -157,6 +175,35 @@ export interface RAGResult {
   metadata?: Record<string, any>;
 }
 
+export interface SemanticAnalysis {
+  taskType: string;
+  complexity: 'simple' | 'moderate' | 'complex' | 'expert';
+  domain: string;
+  confidence: number;
+  reasoning: string[];
+  estimatedTokens: number;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  requiresMultimodal: boolean;
+  requiresRAG: boolean;
+  requiresCodeGeneration: boolean;
+  attachments?: AttachmentAnalysis[];
+}
+
+export interface AttachmentAnalysis {
+  id: string;
+  filename: string;
+  contentType: string;
+  detectedType: 'text' | 'code' | 'image' | 'document' | 'data' | 'unknown';
+  language: string | undefined;
+  complexity: 'simple' | 'moderate' | 'complex' | 'expert';
+  domain: string;
+  sensitivity: 'public' | 'internal' | 'confidential' | 'restricted';
+  processingRequirements: string[];
+  estimatedTokens: number;
+  confidence: number;
+  reasoning: string[];
+}
+
 export interface SemanticAnalysisRequest {
   text: string;
   analysisType: 'classification' | 'ner' | 'summarization' | 'sentiment' | 'similarity';
@@ -183,6 +230,10 @@ export interface RequestMetrics {
   averageCost: number;
   totalCost: number;
   successRate: number;
+  requestType?: string;
+  complexity?: string;
+  qualityScore?: number;
+  errorRate?: number;
   timeRange: {
     start: Date;
     end: Date;
@@ -382,3 +433,28 @@ export enum AnalysisType {
 // =============================================================================
 
 export type { ApiError };
+
+// =============================================================================
+// SECURITY TYPES
+// =============================================================================
+
+export interface SecurityAnomaly {
+  type: 'prompt-injection' | 'malicious-content' | 'rate-limit-abuse' | 'unauthorized-access' | 'prompt_length_violation' | 'rate_limit_exceeded' | 'protection_service_failure' | 'prompt_injection_pattern' | 'excessive_special_characters' | 'consecutive_special_characters' | 'control_characters_detected' | 'suspicious_utf8_sequences' | 'zero_width_characters' | 'semantic_contradictions' | 'context_switching' | 'instruction_manipulation';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  details: string;
+  timestamp: Date;
+  requestId?: string;
+  userId?: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+export interface PromptInjectionAttempt {
+  pattern: string;
+  category: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  confidence: number;
+  timestamp: Date;
+  requestId?: string;
+  userId?: string;
+}
